@@ -23,7 +23,7 @@ def get_required_setting(setting_name):
 def get_environment_resolver():
     """Get the configured environment resolver"""
     resolver_path = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENT_RESOLVER',
-                           'canvas_oauth.resolvers.SettingsBasedResolver')
+                           'canvas_oauth.resolvers.LegacyResolver')
 
     module_path, class_name = resolver_path.rsplit('.', 1)
     module = __import__(module_path, fromlist=[class_name])
