@@ -1,0 +1,120 @@
+import logging
+from abc import ABC, abstractmethod
+from urllib.parse import urlparse
+
+from django.conf import settings
+
+from .models import CanvasEnvironment
+
+logger = logging.getLogger(__name__)
+
+class EnvironmentResolver(ABC):
+    """Abstract base class for Canvas environment resolution"""
+
+    @abstractmethod
+    def resolve_environment(self, request, **kwargs):
+        """
+        Resolve Canvas environment from request context
+        Returns: CanvasEnvironment instance or None
+        """
+        pass
+
+
+class DomainBasedResolver(EnvironmentResolver):
+    """
+    Resolves Canvas environment by domain name.
+
+    This resolver supports multiple methods to extract the Canvas domain:
+      - Direct from LTI custom fields (api_domain=$Canvas.api.domain)
+      - From request session storage
+      - From Canvas URLs in LTI claims (fallback)
+    """
+
+    def resolve_environment(self, request, **kwargs):
+        canvas_domain = getattr(request, '_canvas_domain', None)
+        if not canvas_domain:
+            canvas_domain = request.session.get('canvas_domain')
+
+        if canvas_domain:
+            try:
+                return CanvasEnvironment.objects.get(domain=canvas_domain, is_active=True)
+            except CanvasEnvironment.DoesNotExist:
+                logger.warning(f"No active Canvas environment found for domain: {canvas_domain}")
+
+        return None
+
+    def extract_domain_from_lti_data(self, lti_data):
+        """
+        Extract Canvas domain from LTI launch data.
+
+        Priority order:
+        1. Direct from api_domain custom field
+        2. Parse from Canvas URLs in LTI claims
+        """
+        # Check for api_domain custom field
+        # This is set via developer key custom fields: api_domain=$Canvas.api.domain
+        custom_fields = lti_data.get('https://purl.imsglobal.org/spec/lti/claim/custom', {})
+        api_domain = custom_fields.get('api_domain')
+
+        if api_domain:
+            return api_domain
+
+        # Fallback - parse from Canvas URLs in LTI claims
+        return self._extract_domain_from_lti_urls(lti_data)
+
+    def _extract_domain_from_lti_urls(self, lti_data):
+        """Fallback method - extract domain from Canvas URLs in LTI claims"""
+        ags_claim = lti_data.get('https://purl.imsglobal.org/spec/lti-ags/claim/endpoint', {})
+        if ags_claim and 'lineitems' in ags_claim:
+            domain = self.extract_domain_from_url(ags_claim['lineitems'])
+            if domain:
+                return domain
+
+        nrps_claim = lti_data.get('https://purl.imsglobal.org/spec/lti-nrps/claim/namesroleservice', {})
+        if nrps_claim and 'context_memberships_url' in nrps_claim:
+            domain = self.extract_domain_from_url(nrps_claim['context_memberships_url'])
+            if domain:
+                return domain
+
+        launch_presentation = lti_data.get('https://purl.imsglobal.org/spec/lti/claim/launch_presentation', {})
+        if launch_presentation and 'return_url' in launch_presentation:
+            domain = self.extract_domain_from_url(launch_presentation['return_url'])
+            if domain:
+                return domain
+
+        return None
+
+    def extract_domain_from_url(self, url):
+        """Extract domain from Canvas URL - utility method"""
+        if not url:
+            return None
+
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc
+            # Remove 'www.' prefix if present
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            return domain
+        except Exception:
+            return None
+
+
+class LegacyResolver(EnvironmentResolver):
+    """
+    Fallback resolver for single-environment legacy setups.
+    """
+
+    def resolve_environment(self, request, **kwargs):
+        # Only try if no multi-environment config exists
+        if not hasattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS') or not settings.CANVAS_OAUTH_ENVIRONMENTS:
+            if hasattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN'):
+                try:
+                    return CanvasEnvironment.objects.get(
+                        domain=settings.CANVAS_OAUTH_CANVAS_DOMAIN,
+                        is_active=True
+                    )
+                except CanvasEnvironment.DoesNotExist:
+                    pass
+
+        return None
