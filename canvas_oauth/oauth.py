@@ -1,21 +1,21 @@
 import logging
 
-from django.urls import reverse
+from django.core.exceptions import ImproperlyConfigured
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.template import loader
 from django.template.exceptions import TemplateDoesNotExist
+from django.urls import reverse
 from django.utils.crypto import get_random_string
 
-from canvas_oauth import (canvas, settings)
-from canvas_oauth.models import CanvasOAuth2Token
-from canvas_oauth.exceptions import (
-    MissingTokenError, InvalidOAuthStateError)
+from canvas_oauth import canvas, settings
+from canvas_oauth.exceptions import InvalidOAuthStateError, MissingTokenError
+from canvas_oauth.models import CanvasEnvironment, CanvasOAuth2Token
 
 logger = logging.getLogger(__name__)
 
 
-def get_oauth_token(request):
+def get_oauth_token(request, environment=None):
     """Retrieve a stored Canvas OAuth2 access token from Canvas for the
     currently logged in user.  If the token has expired (or has exceeded an
     expiration threshold as defined by the consuming project), a fresh token
@@ -27,28 +27,49 @@ def get_oauth_token(request):
     handle_missing_token.  If this happens outside of a view, then the user must
     be directed by other means to the Canvas site in order to authorize a token.
     """
+    if not environment:
+        resolver = settings.get_environment_resolver()
+        environment = resolver.resolve_environment(request)
+
+        if not environment:
+            raise MissingTokenError("Cannot resolve Canvas environment")
+
     try:
-        oauth_token = request.user.canvas_oauth2_token
-        logger.info("Token found for user %s" % request.user.pk)
+        oauth_token = CanvasOAuth2Token.objects.get(
+            user=request.user,
+            environment=environment
+        )
+        logger.info(f"Token found for user {request.user.pk} in environment {environment.name}")
     except CanvasOAuth2Token.DoesNotExist:
         """ If this exception is raised by a view function and not caught,
         it is probably because the oauth_middleware is not installed, since it
         is supposed to catch this error."""
-        logger.info("No token found for user %s" % request.user.pk)
-        raise MissingTokenError("No token found for user %s" % request.user.pk)
+        logger.info(f"No token found for user {request.user.pk} in environment {environment.name}")
+        raise MissingTokenError(f"No token found for user {request.user.pk} in environment {environment.name}")
 
     # Check to see if we're within the expiration threshold of the access token
+    # Use the same buffer logic as the original system, just environment-aware
     if oauth_token.expires_within(settings.CANVAS_OAUTH_TOKEN_EXPIRATION_BUFFER):
-        logger.info("Refreshing token for user %s" % request.user.pk)
-        oauth_token = refresh_oauth_token(request)
+        logger.info(f"Refreshing token for user {request.user.pk} in environment {environment.name}")
+        oauth_token = refresh_oauth_token(request, environment)
 
     return oauth_token.access_token
 
 
-def handle_missing_token(request):
+def handle_missing_token(request, environment=None):
     """
     Redirect user to canvas with a request for token.
     """
+    if not environment:
+        resolver = settings.get_environment_resolver()
+        environment = resolver.resolve_environment(request)
+
+        if not environment:
+            raise ImproperlyConfigured("Cannot resolve Canvas environment for OAuth")
+
+    # Store environment in session for OAuth callback
+    request.session['oauth_environment_id'] = environment.id
+
     # Store where the user came from so they can be redirected back there
     # at the end.  https://canvas.instructure.com/doc/api/file.oauth.html
     request.session["canvas_oauth_initial_uri"] = request.get_full_path()
@@ -65,7 +86,7 @@ def handle_missing_token(request):
     request.session["canvas_oauth_redirect_uri"] = oauth_redirect_uri
 
     authorize_url = canvas.get_oauth_login_url(
-        settings.CANVAS_OAUTH_CLIENT_ID,
+        environment,
         redirect_uri=oauth_redirect_uri,
         state=oauth_request_state,
         scopes=settings.CANVAS_OAUTH_SCOPES)
@@ -88,20 +109,36 @@ def oauth_callback(request):
         logger.warning("OAuth state mismatch for request: %s" % request.get_full_path())
         raise InvalidOAuthStateError("OAuth state mismatch!")
 
-    # Make the `authorization_code` grant type request to retrieve a
+    # Get environment from session
+    environment_id = request.session.get('oauth_environment_id')
+    if not environment_id:
+        return render_oauth_error("Missing environment information")
+
+    try:
+        environment = CanvasEnvironment.objects.get(id=environment_id, is_active=True)
+    except CanvasEnvironment.DoesNotExist:
+        return render_oauth_error("Invalid environment")
+
+    # Make the `authorization_code` grant type request to retrieve a token
     access_token, expires, refresh_token = canvas.get_access_token(
+        environment=environment,
         grant_type='authorization_code',
-        client_id=settings.CANVAS_OAUTH_CLIENT_ID,
-        client_secret=settings.CANVAS_OAUTH_CLIENT_SECRET,
         redirect_uri=request.session["canvas_oauth_redirect_uri"],
         code=code)
 
-    obj = CanvasOAuth2Token.objects.create(
+    obj, created = CanvasOAuth2Token.objects.update_or_create(
         user=request.user,
-        access_token=access_token,
-        expires=expires,
-        refresh_token=refresh_token)
-    logger.info("CanvasOAuth2Token instance created: %s" % obj.pk)
+        environment=environment,
+        defaults={
+            'access_token': access_token,
+            'expires': expires,
+            'refresh_token': refresh_token or ''
+        }
+    )
+    logger.info("CanvasOAuth2Token instance %s: %s" % ('created' if created else 'updated', obj.pk))
+
+    # Clean up session
+    request.session.pop('oauth_environment_id', None)
 
     initial_uri = request.session['canvas_oauth_initial_uri']
     logger.info("Redirecting user back to initial uri %s" % initial_uri)
@@ -109,19 +146,28 @@ def oauth_callback(request):
     return redirect(initial_uri)
 
 
-def refresh_oauth_token(request):
+def refresh_oauth_token(request, environment=None):
     """ Makes refresh_token grant request with Canvas to get a fresh
     access token.  Update the oauth token model with the new token
     and new expiration date and return the saved model.
     """
-    oauth_token = request.user.canvas_oauth2_token
+    if not environment:
+        resolver = settings.get_environment_resolver()
+        environment = resolver.resolve_environment(request)
+
+        if not environment:
+            raise ImproperlyConfigured("Cannot resolve Canvas environment for token refresh")
+
+    oauth_token = CanvasOAuth2Token.objects.get(
+        user=request.user,
+        environment=environment
+    )
 
     # Get the new access token and expiration date via
     # a refresh token grant
     oauth_token.access_token, oauth_token.expires, _ = canvas.get_access_token(
+        environment=environment,
         grant_type='refresh_token',
-        client_id=settings.CANVAS_OAUTH_CLIENT_ID,
-        client_secret=settings.CANVAS_OAUTH_CLIENT_SECRET,
         redirect_uri=request.build_absolute_uri(
             reverse('canvas-oauth-callback')),
         refresh_token=oauth_token.refresh_token)
