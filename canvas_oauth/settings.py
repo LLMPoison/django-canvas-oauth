@@ -5,31 +5,69 @@ canvas_oauth specific settings
 
 from datetime import timedelta
 
-from django.core.exceptions import ImproperlyConfigured
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 
-def get_required_setting(oauth_setting):
+def get_required_setting(setting_name):
     """
     Check for and return required OAuth setting here so we can
     raise an error if not found.
     """
-    if not hasattr(settings, oauth_setting):
-        raise ImproperlyConfigured(
-            'Missing %s setting that is required to use the Django Canvas OAuth library' % oauth_setting)
-    return getattr(settings, oauth_setting)
+    try:
+        return getattr(settings, setting_name)
+    except AttributeError:
+        raise ImproperlyConfigured(f"{setting_name} setting is required")
 
 
-# Get required settings from project conf
-CANVAS_OAUTH_CLIENT_ID = get_required_setting('CANVAS_OAUTH_CLIENT_ID')
-CANVAS_OAUTH_CLIENT_SECRET = get_required_setting('CANVAS_OAUTH_CLIENT_SECRET')
-CANVAS_OAUTH_CANVAS_DOMAIN = get_required_setting('CANVAS_OAUTH_CANVAS_DOMAIN')
+def get_environment_resolver():
+    """Get the configured environment resolver"""
+    resolver_path = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENT_RESOLVER',
+                           'canvas_oauth.resolvers.SettingsBasedResolver')
+
+    module_path, class_name = resolver_path.rsplit('.', 1)
+    module = __import__(module_path, fromlist=[class_name])
+    resolver_class = getattr(module, class_name)
+
+    return resolver_class()
+
+
+def get_environments_config():
+    """Get multi-environment configuration from settings"""
+    return getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
+
+
+# Legacy single environment support - check if new multi-environment config exists
+if hasattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS') and settings.CANVAS_OAUTH_ENVIRONMENTS:
+    pass
+else:
+    CANVAS_OAUTH_CLIENT_ID = get_required_setting('CANVAS_OAUTH_CLIENT_ID')
+    CANVAS_OAUTH_CLIENT_SECRET = get_required_setting('CANVAS_OAUTH_CLIENT_SECRET')
+    CANVAS_OAUTH_CANVAS_DOMAIN = get_required_setting('CANVAS_OAUTH_CANVAS_DOMAIN')
+
+
+# Legacy single environment support functions
+def get_legacy_client_id():
+    """Get client ID for backward compatibility"""
+    return getattr(settings, 'CANVAS_OAUTH_CLIENT_ID', None)
+
+
+def get_legacy_client_secret():
+    """Get client secret for backward compatibility"""
+    return getattr(settings, 'CANVAS_OAUTH_CLIENT_SECRET', None)
+
+
+def get_legacy_domain():
+    """Get domain for backward compatibility"""
+    return getattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN', None)
 
 # Optional settings
 # -----------------
 
-# A buffer for refreshing a token when retrieving via `get_token`, expressed
-# as a timedelta.  Default to having no expiration buffer.
+# Buffer for refreshing a token when retrieving via `get_token`, expressed
+# as a timedelta. Tokens are refreshed this amount of time before they expire.
+# Canvas tokens expire after 1 hour, so setting this to timedelta(minutes=5)
+# means tokens refresh at the 55-minute mark.
 CANVAS_OAUTH_TOKEN_EXPIRATION_BUFFER = getattr(
     settings,
     'CANVAS_OAUTH_TOKEN_EXPIRATION_BUFFER',
@@ -41,6 +79,33 @@ CANVAS_OAUTH_ERROR_TEMPLATE = getattr(
     'CANVAS_OAUTH_ERROR_TEMPLATE',
     'oauth_error.html'
 )
+
+
+# Environment-specific credential helpers
+# =======================================
+
+def get_client_id_for_domain(domain):
+    """Get client ID for a specific Canvas domain from settings"""
+    # Check for domain-specific setting first
+    domain_setting = f'CANVAS_OAUTH_{domain.upper().replace(".", "_")}_CLIENT_ID'
+    domain_client_id = getattr(settings, domain_setting, None)
+    if domain_client_id:
+        return domain_client_id
+
+    # Fall back to main setting
+    return getattr(settings, 'CANVAS_OAUTH_CLIENT_ID', '')
+
+
+def get_client_secret_for_domain(domain):
+    """Get client secret for a specific Canvas domain from settings"""
+    # Check for domain-specific setting first
+    domain_setting = f'CANVAS_OAUTH_{domain.upper().replace(".", "_")}_CLIENT_SECRET'
+    domain_client_secret = getattr(settings, domain_setting, None)
+    if domain_client_secret:
+        return domain_client_secret
+
+    # Fall back to main setting
+    return getattr(settings, 'CANVAS_OAUTH_CLIENT_SECRET', '')
 
 # A list of Canvas API scopes that the access token will provide access to.
 #
