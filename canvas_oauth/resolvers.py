@@ -102,19 +102,27 @@ class DomainBasedResolver(EnvironmentResolver):
 
 class LegacyResolver(EnvironmentResolver):
     """
-    Fallback resolver for single-environment legacy setups.
+    Resolver for single-environment legacy setups.
+
+    This resolver requires CANVAS_OAUTH_CANVAS_DOMAIN to be configured
+    and uses it to find the specific Canvas environment.
     """
 
     def resolve_environment(self, request, **kwargs):
-        # Only try if no multi-environment config exists
-        if not hasattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS') or not settings.CANVAS_OAUTH_ENVIRONMENTS:
-            if hasattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN'):
-                try:
-                    return CanvasEnvironment.objects.get(
-                        domain=settings.CANVAS_OAUTH_CANVAS_DOMAIN,
-                        is_active=True
-                    )
-                except CanvasEnvironment.DoesNotExist:
-                    pass
+        if not hasattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN'):
+            logger.warning("LegacyResolver requires CANVAS_OAUTH_CANVAS_DOMAIN setting")
+            return None
 
-        return None
+        domain = getattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN')
+        if not domain:
+            logger.warning("CANVAS_OAUTH_CANVAS_DOMAIN setting is empty")
+            return None
+
+        try:
+            return CanvasEnvironment.objects.get(
+                domain=domain,
+                is_active=True
+            )
+        except CanvasEnvironment.DoesNotExist:
+            logger.error(f"No active Canvas environment found for domain: {domain}")
+            return None
