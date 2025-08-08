@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('canvas_oauth', '0001_initial'),
+        ('canvas_oauth', '0002_alter_canvasoauth2token_options'),
     ]
 
     operations = [
@@ -45,7 +45,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='canvasoauth2token',
             name='user',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='canvas_tokens', to='common.User'),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='canvas_tokens', to=settings.AUTH_USER_MODEL),
         ),
 
         # Data migration to create default environment and migrate existing tokens
