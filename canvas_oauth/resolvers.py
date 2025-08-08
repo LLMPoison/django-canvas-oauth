@@ -35,6 +35,15 @@ class DomainBasedResolver(EnvironmentResolver):
         if not canvas_domain:
             canvas_domain = request.session.get('canvas_domain')
 
+        # If we have yet to store the domain in the session, extract via LTI data
+        if not canvas_domain:
+            lti_data = getattr(request, 'lti_launch_data', None) or kwargs.get('lti_data')
+            if lti_data:
+                canvas_domain = self.extract_domain_from_lti_data(lti_data)
+                if canvas_domain:
+                    request.session['canvas_domain'] = canvas_domain
+                    request._canvas_domain = canvas_domain
+
         if canvas_domain:
             try:
                 return CanvasEnvironment.objects.get(domain=canvas_domain, is_active=True)
