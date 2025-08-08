@@ -5,9 +5,9 @@
 Django Canvas OAuth
 ============
 
-**Django Canvas OAuth** is a Django app that manages OAuth2 Tokens used to make API calls against a Canvas LMS instance.  
+**Django Canvas OAuth** is a Django app that manages OAuth2 Tokens used to make API calls against a Canvas LMS instance.
 
-The `OAuth workflow`_ is managed by this library and a CanvasOAuth2Token model is used to store authenticated tokens. 
+The `OAuth workflow`_ is managed by this library and a CanvasOAuth2Token model is used to store authenticated tokens.
 
 Tokens are short-lived, so some logic is introduced at the point of retrieving the the stored token to capture and handle the necessary refresh calls.
 
@@ -29,7 +29,7 @@ Quickstart
 1. Add "canvas_oauth" to your INSTALLED_APPS setting like this::
 
 .. code-block:: python
-    
+
     INSTALLED_APPS = [
         # ...
         'canvas_oauth.apps.CanvasOAuthConfig',
@@ -45,7 +45,7 @@ Quickstart
    present and to consume any errors encountered by the library.
 
 .. code-block:: python
-    
+
     MIDDLEWARE = [
         # ...
         'canvas_oauth.middleware.OAuthMiddleware',
@@ -53,14 +53,14 @@ Quickstart
 
 4. Run ``python manage.py migrate`` to create the canvas_oauth models.
 
-5. Use the ``get_oauth_token`` method from ``canvas_oauth.oauth`` to obtain a 
-   token. This method contains all of the logic to obtain a new token, refresh 
+5. Use the ``get_oauth_token`` method from ``canvas_oauth.oauth`` to obtain a
+   token. This method contains all of the logic to obtain a new token, refresh
    an expired one, or return an existing one.
 
 .. code-block:: python
 
     from canvas_oauth.oauth import get_oauth_token
-    
+
     access_token = get_oauth_token(request)
     #  Make request to the Canvas API using above token.
 
@@ -70,15 +70,35 @@ Settings
 
 Settings should be added to your django settings module (e.g. ``settings.py``).
 
+Single-Environment Settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For simple setups with a single Canvas instance, use these settings:
 
 CANVAS_OAUTH_CLIENT_ID:
-    (required) The client id is the integer client id value of your Canvas developer key. 
+    (required for single-environment) The client id is the integer client id value of your Canvas developer key.
 
 CANVAS_OAUTH_CLIENT_SECRET:
-    (required) The client secret is the random string (secret) value of your Canvas developer key.
+    (required for single-environment) The client secret is the random string (secret) value of your Canvas developer key.
 
 CANVAS_OAUTH_CANVAS_DOMAIN:
-    (required) The domain of your canvas instance (e.g. canvas.instructure.com)
+    (required for single-environment) The domain of your canvas instance (e.g. canvas.instructure.com)
+
+Multi-Environment Settings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For LTI tools working with multiple Canvas instances, use these settings instead:
+
+CANVAS_OAUTH_ENVIRONMENTS:
+    (required for multi-environment) Dictionary defining multiple Canvas instances with their OAuth credentials and domains. See Multi-Environment Support section for details.
+
+CANVAS_OAUTH_ENVIRONMENT_RESOLVER:
+    (required for multi-environment) Class path for environment resolution strategy. Use ``'canvas_oauth.resolvers.DomainBasedResolver'`` for automatic LTI-based detection.
+
+Common Settings
+~~~~~~~~~~~~~~~
+
+These settings apply to both single and multi-environment configurations:
 
 CANVAS_OAUTH_SCOPES:
     (optional) Specify a list of Canvas API scopes that the access token will provide access to. Canvas API scopes may be found beneath their corresponding endpoints in the "resources" documentation pages. If the developer key does not require scopes and no scopes are specified, the access token will have access to all scopes. Defaults to ``[]``.
@@ -89,6 +109,74 @@ CANVAS_OAUTH_TOKEN_EXPIRATION_BUFFER:
 CANVAS_OAUTH_ERROR_TEMPLATE:
     (optional) Specify a template for rendering errors that occur in the authorization flow. Defaults to ``oauth_error.html``.
 
+
+Multi-Environment Support
+--------------------------
+
+For LTI tools that need to work with multiple Canvas instances (e.g., production and test environments), django-canvas-oauth supports automatic environment detection.
+
+Setup
+~~~~~
+
+1. **Configure environments in settings:**
+
+.. code-block:: python
+
+    # Multi-environment configuration
+    CANVAS_OAUTH_ENVIRONMENTS = {
+        'production': {
+            'client_id': 'your_prod_client_id',
+            'client_secret': 'your_prod_secret',
+            'canvas_domain': 'canvas.school.edu',
+            'name': 'School Canvas',
+        },
+        'test': {
+            'client_id': 'your_test_client_id',
+            'client_secret': 'your_test_secret',
+            'canvas_domain': 'canvas.test.school.edu',
+            'name': 'School Canvas (Test)',
+        },
+    }
+
+    # Enable domain-based environment detection
+    CANVAS_OAUTH_ENVIRONMENT_RESOLVER = 'canvas_oauth.resolvers.DomainBasedResolver'
+
+2. **Run migrations:**
+
+.. code-block:: bash
+
+    python manage.py migrate canvas_oauth
+
+3. **Create environment records:**
+
+.. code-block:: python
+
+    from canvas_oauth.models import CanvasEnvironment
+
+    CanvasEnvironment.objects.create(
+        name='School Canvas',
+        domain='canvas.school.edu',
+        is_active=True
+    )
+
+    CanvasEnvironment.objects.create(
+        name='School Canvas (Test)',
+        domain='canvas.test.school.edu',
+        is_active=True
+    )
+
+4. **Add Canvas custom field:**
+
+Add this custom field to your LTI Developer Key configuration:
+
+.. code-block::
+
+    api_domain=$Canvas.api.domain
+
+Multi-Environment Usage
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+No code changes required. The library automatically detects the Canvas environment from LTI launch data and uses the appropriate OAuth credentials.
 
 
 Usage
@@ -140,7 +228,7 @@ Or to run tests against multiple versions of python and django use tox_:
 .. code-block:: bash
 
     $ tox
-    $ tox -e flake8 
+    $ tox -e flake8
 
 .. _tox: https://tox.readthedocs.io/
 
