@@ -8,6 +8,8 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+from canvas_oauth import settings as oauth_settings
+
 
 def get_required_setting(setting_name):
     """
@@ -35,6 +37,31 @@ def get_environment_resolver():
 def get_environments_config():
     """Get multi-environment configuration from settings"""
     return getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
+
+
+def get_canvas_credentials(domain):
+    """
+    Get Canvas OAuth credentials for a specific domain.
+    """
+    # Check for multi-environment config
+    environments_config = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
+    for env_key, env_config in environments_config.items():
+        if env_config.get('domain') == domain:
+            client_id = env_config.get('client_id')
+            client_secret = env_config.get('client_secret')
+            if client_id and client_secret:
+                return client_id, client_secret, f"https://{domain}"
+
+    client_id = oauth_settings.get_client_id_for_domain(domain)
+    client_secret = oauth_settings.get_client_secret_for_domain(domain)
+
+    if not client_id or not client_secret:
+        raise ImproperlyConfigured(
+            f"Canvas OAuth credentials not found for domain: {domain}. "
+            f"Please configure CANVAS_OAUTH_ENVIRONMENTS or domain-specific settings."
+        )
+
+    return client_id, client_secret, f"https://{domain}"
 
 
 # Legacy single environment support - check if new multi-environment config exists

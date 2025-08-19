@@ -4,25 +4,23 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-from .models import CanvasEnvironment
-
 logger = logging.getLogger(__name__)
 
 class EnvironmentResolver(ABC):
     """Abstract base class for Canvas environment resolution"""
 
     @abstractmethod
-    def resolve_environment(self, request, **kwargs):
+    def resolve_domain(self, request, **kwargs):
         """
-        Resolve Canvas environment from request context
-        Returns: CanvasEnvironment instance or None
+        Resolve Canvas domain from request context
+        Returns: domain string or None
         """
         pass
 
 
 class DomainBasedResolver(EnvironmentResolver):
     """
-    Resolves Canvas environment by domain name.
+    Resolves Canvas domain by domain name.
 
     This resolver supports multiple methods to extract the Canvas domain:
       - Direct from LTI custom fields (api_domain=$Canvas.api.domain)
@@ -30,7 +28,7 @@ class DomainBasedResolver(EnvironmentResolver):
       - From Canvas URLs in LTI claims (fallback)
     """
 
-    def resolve_environment(self, request, **kwargs):
+    def resolve_domain(self, request, **kwargs):
         canvas_domain = getattr(request, '_canvas_domain', None)
         if not canvas_domain:
             canvas_domain = request.session.get('canvas_domain')
@@ -45,10 +43,7 @@ class DomainBasedResolver(EnvironmentResolver):
                     request._canvas_domain = canvas_domain
 
         if canvas_domain:
-            try:
-                return CanvasEnvironment.objects.get(domain=canvas_domain, is_active=True)
-            except CanvasEnvironment.DoesNotExist:
-                logger.warning(f"No active Canvas environment found for domain: {canvas_domain}")
+            return canvas_domain
 
         return None
 
@@ -114,10 +109,9 @@ class LegacyResolver(EnvironmentResolver):
     Resolver for single-environment legacy setups.
 
     This resolver requires CANVAS_OAUTH_CANVAS_DOMAIN to be configured
-    and uses it to find the specific Canvas environment.
     """
 
-    def resolve_environment(self, request, **kwargs):
+    def resolve_domain(self, request, **kwargs):
         if not hasattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN'):
             logger.warning("LegacyResolver requires CANVAS_OAUTH_CANVAS_DOMAIN setting")
             return None
@@ -127,11 +121,4 @@ class LegacyResolver(EnvironmentResolver):
             logger.warning("CANVAS_OAUTH_CANVAS_DOMAIN setting is empty")
             return None
 
-        try:
-            return CanvasEnvironment.objects.get(
-                domain=domain,
-                is_active=True
-            )
-        except CanvasEnvironment.DoesNotExist:
-            logger.error(f"No active Canvas environment found for domain: {domain}")
-            return None
+        return domain
