@@ -2,55 +2,6 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
-from canvas_oauth import settings as oauth_settings
-
-
-class CanvasEnvironment(models.Model):
-    """Represents a Canvas environment configuration"""
-    name = models.CharField(max_length=100, unique=True, help_text="Human-readable name (e.g., 'Harvard Canvas')")
-    domain = models.CharField(max_length=255, unique=True, help_text="Canvas domain (e.g., 'canvas.harvard.edu')")
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    @property
-    def base_url(self):
-        """Return the base Canvas URL for this environment"""
-        return f"https://{self.domain}"
-
-    @property
-    def client_id(self):
-        """Get client ID from CANVAS_OAUTH_ENVIRONMENTS config or legacy settings"""
-
-        # First check for a multi-environment config
-        environments_config = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
-        for env_key, env_config in environments_config.items():
-            if env_config.get('domain') == self.domain:
-                return env_config.get('client_id')
-
-        # Fall back to domain-based lookup
-        return oauth_settings.get_client_id_for_domain(self.domain)
-
-    @property
-    def client_secret(self):
-        """Get client secret from CANVAS_OAUTH_ENVIRONMENTS config or legacy settings"""
-
-        # First check for a multi-environment config
-        environments_config = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
-        for env_key, env_config in environments_config.items():
-            if env_config.get('domain') == self.domain:
-                return env_config.get('client_secret')
-
-        # Fall back to domain-based lookup
-        return oauth_settings.get_client_secret_for_domain(self.domain)
-
-    class Meta:
-        verbose_name = "Canvas Environment"
-        verbose_name_plural = "Canvas Environments"
-
-    def __str__(self):
-        return f"{self.name} ({self.domain})"
-
 
 class CanvasOAuth2Token(models.Model):
     """
@@ -76,16 +27,20 @@ class CanvasOAuth2Token(models.Model):
         on_delete=models.CASCADE,
         related_name='canvas_tokens',
     )
-    environment = models.ForeignKey(
-        CanvasEnvironment,
-        on_delete=models.CASCADE,
-        related_name='tokens'
+    canvas_domain = models.CharField(
+        max_length=255,
+        help_text="Canvas domain (e.g., 'canvas.school.edu')"
     )
     access_token = models.TextField()
     refresh_token = models.TextField()
     expires = models.DateTimeField()
     created_on = models.DateTimeField(auto_now_add=True)
     updated_on = models.DateTimeField(auto_now=True)
+
+    @property
+    def base_url(self):
+        """Return the base Canvas URL for this token's domain"""
+        return f"https://{self.canvas_domain}"
 
     def expires_within(self, delta):
         """
@@ -109,9 +64,9 @@ class CanvasOAuth2Token(models.Model):
         return timezone.now() >= self.expires
 
     def __str__(self):
-        return f"{self.user.username} - {self.environment.name}"
+        return f"{self.user.username} - {self.canvas_domain}"
 
     class Meta:
-        unique_together = ('user', 'environment')
+        unique_together = ('user', 'canvas_domain')
         verbose_name = "Canvas OAuth2 Token"
         verbose_name_plural = "Canvas OAuth2 Tokens"
