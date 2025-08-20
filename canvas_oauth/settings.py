@@ -25,7 +25,7 @@ def get_required_setting(setting_name):
 def get_environment_resolver():
     """Get the configured environment resolver"""
     resolver_path = getattr(settings, 'CANVAS_OAUTH_ENVIRONMENT_RESOLVER',
-                           'canvas_oauth.resolvers.LegacyResolver')
+                           'canvas_oauth.resolvers.SingleEnvironmentResolver')
 
     module_path, class_name = resolver_path.rsplit('.', 1)
     module = __import__(module_path, fromlist=[class_name])
@@ -59,7 +59,7 @@ def get_canvas_credentials(domain):
     return client_id, client_secret, f"https://{domain}"
 
 
-# Legacy single environment support - check if new multi-environment config exists
+# Single environment support - check if new multi-environment config exists
 if hasattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS') and settings.CANVAS_OAUTH_ENVIRONMENTS:
     pass
 else:
