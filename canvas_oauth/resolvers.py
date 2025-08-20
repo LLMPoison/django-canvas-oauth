@@ -18,9 +18,9 @@ class EnvironmentResolver(ABC):
         pass
 
 
-class DomainBasedResolver(EnvironmentResolver):
+class LtiBasedResolver(EnvironmentResolver):
     """
-    Resolves Canvas domain by domain name.
+    Resolves Canvas domain for LTI tools.
 
     This resolver supports multiple methods to extract the Canvas domain:
       - Direct from LTI custom fields (api_domain=$Canvas.api.domain)
@@ -29,18 +29,20 @@ class DomainBasedResolver(EnvironmentResolver):
     """
 
     def resolve_domain(self, request, **kwargs):
+        # Always check LTI data first if available to ensure fresh launches use correct domain
+        lti_data = kwargs.get('lti_data')
+        if lti_data:
+            canvas_domain = self.extract_domain_from_lti_data(lti_data)
+            if canvas_domain:
+                # Update both session and request cache with fresh domain
+                request.session['canvas_domain'] = canvas_domain
+                request._canvas_domain = canvas_domain
+                return canvas_domain
+
+        # Fall back to cached values only if no LTI data is available
         canvas_domain = getattr(request, '_canvas_domain', None)
         if not canvas_domain:
             canvas_domain = request.session.get('canvas_domain')
-
-        # If we have yet to store the domain in the session, extract via LTI data
-        if not canvas_domain:
-            lti_data = getattr(request, 'lti_launch_data', None) or kwargs.get('lti_data')
-            if lti_data:
-                canvas_domain = self.extract_domain_from_lti_data(lti_data)
-                if canvas_domain:
-                    request.session['canvas_domain'] = canvas_domain
-                    request._canvas_domain = canvas_domain
 
         if canvas_domain:
             return canvas_domain
@@ -104,16 +106,16 @@ class DomainBasedResolver(EnvironmentResolver):
             return None
 
 
-class LegacyResolver(EnvironmentResolver):
+class SingleEnvironmentResolver(EnvironmentResolver):
     """
-    Resolver for single-environment legacy setups.
+    Resolver for single-environment setups.
 
     This resolver requires CANVAS_OAUTH_CANVAS_DOMAIN to be configured
     """
 
     def resolve_domain(self, request, **kwargs):
         if not hasattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN'):
-            logger.warning("LegacyResolver requires CANVAS_OAUTH_CANVAS_DOMAIN setting")
+            logger.warning("SingleEnvironmentResolver requires CANVAS_OAUTH_CANVAS_DOMAIN setting")
             return None
 
         domain = getattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN')
