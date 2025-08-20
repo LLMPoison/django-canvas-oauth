@@ -34,11 +34,6 @@ def get_environment_resolver():
     return resolver_class()
 
 
-def get_environments_config():
-    """Get multi-environment configuration from settings"""
-    return getattr(settings, 'CANVAS_OAUTH_ENVIRONMENTS', {})
-
-
 def get_canvas_credentials(domain):
     """
     Get Canvas OAuth credentials for a specific domain.
@@ -72,21 +67,6 @@ else:
     CANVAS_OAUTH_CLIENT_SECRET = get_required_setting('CANVAS_OAUTH_CLIENT_SECRET')
     CANVAS_OAUTH_CANVAS_DOMAIN = get_required_setting('CANVAS_OAUTH_CANVAS_DOMAIN')
 
-
-# Legacy single environment support functions
-def get_legacy_client_id():
-    """Get client ID for backward compatibility"""
-    return getattr(settings, 'CANVAS_OAUTH_CLIENT_ID', None)
-
-
-def get_legacy_client_secret():
-    """Get client secret for backward compatibility"""
-    return getattr(settings, 'CANVAS_OAUTH_CLIENT_SECRET', None)
-
-
-def get_legacy_domain():
-    """Get domain for backward compatibility"""
-    return getattr(settings, 'CANVAS_OAUTH_CANVAS_DOMAIN', None)
 
 # Optional settings
 # -----------------
