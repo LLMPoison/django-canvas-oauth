@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('canvas_oauth', '0002_alter_canvasoauth2token_options_and_more'),
+        ('canvas_oauth', '0002_alter_canvasoauth2token_options'),
     ]
 
     operations = [
