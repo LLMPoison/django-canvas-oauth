@@ -7,8 +7,7 @@ Django Canvas OAuth
 
 **Django Canvas OAuth** is a Django app that manages OAuth2 Tokens used to make API calls against a Canvas LMS instance.
 
-The `OAuth workflow`_ is managed by this library and a CanvasOAuth2Token model is used to store authenticated tokens.
-
+The `OAuth workflow`_ is managed by this library and a CanvasOAuth2Token model is used to store authenticated tokens for each Canvas domain. Users can have multiple tokens (one per Canvas domain) to support multi-environment setups.
 Tokens are short-lived, so some logic is introduced at the point of retrieving the the stored token to capture and handle the necessary refresh calls.
 
 .. _OAuth workflow: https://canvas.instructure.com/doc/api/file.oauth.html
@@ -93,7 +92,7 @@ CANVAS_OAUTH_ENVIRONMENTS:
     (required for multi-environment) Dictionary defining multiple Canvas instances with their OAuth credentials and domains. See Multi-Environment Support section for details.
 
 CANVAS_OAUTH_ENVIRONMENT_RESOLVER:
-    (required for multi-environment) Class path for environment resolution strategy. Use ``'canvas_oauth.resolvers.DomainBasedResolver'`` for automatic LTI-based detection.
+    (required for multi-environment) Class path for environment resolution strategy. Use ``'canvas_oauth.resolvers.LtiBasedResolver'`` for automatic LTI-based detection.
 
 Common Settings
 ~~~~~~~~~~~~~~~
@@ -139,7 +138,7 @@ Setup
     }
 
     # Enable domain-based environment detection
-    CANVAS_OAUTH_ENVIRONMENT_RESOLVER = 'canvas_oauth.resolvers.DomainBasedResolver'
+    CANVAS_OAUTH_ENVIRONMENT_RESOLVER = 'canvas_oauth.resolvers.LtiBasedResolver'
 
 2. **Run migrations:**
 
@@ -147,25 +146,7 @@ Setup
 
     python manage.py migrate canvas_oauth
 
-3. **Create environment records:**
-
-.. code-block:: python
-
-    from canvas_oauth.models import CanvasEnvironment
-
-    CanvasEnvironment.objects.create(
-        name='School Canvas',
-        domain='canvas.school.edu',
-        is_active=True
-    )
-
-    CanvasEnvironment.objects.create(
-        name='School Canvas (Test)',
-        domain='canvas.test.school.edu',
-        is_active=True
-    )
-
-4. **Add Canvas custom field:**
+3. **Add Canvas custom field:**
 
 Add this custom field to your LTI Developer Key configuration:
 
@@ -176,10 +157,38 @@ Add this custom field to your LTI Developer Key configuration:
 Multi-Environment Usage
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-No code changes required. The library automatically detects the Canvas environment from LTI launch data and uses the appropriate OAuth credentials.
+Example Django view application code for an LTI tool:
 
+.. code-block:: python
+    from canvas_oauth.oauth import get_oauth_token
+    from canvas_oauth.settings import get_environment_resolver
+    import requests
 
-Usage
+    def get_user_courses(request):
+        # Get OAuth token for the current Canvas domain
+        # This automatically selects the correct token for the domain
+        access_token = get_oauth_token(request)
+
+        # Store LTI data for subsequent use
+        # In this example, get_lti_data() is a dummy function
+        lti_data = get_lti_data()
+
+        # Determine the Canvas domain for the API base URL
+        resolver = oauth_settings.get_environment_resolver()
+        domain = resolver.resolve_domain(request, lti_data=lti_data)
+
+        # Construct API URL
+        api_url = f"https://{canvas_domain}/api/v1/courses"
+
+        # Make API call
+        headers = {
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        }
+
+        response = requests.get(api_url, headers=headers)
+
+Single Environment Usage
 ------
 
 Wherever you are making API requests in your code, use the ``get_oauth_token`` method to retrieve a token.
