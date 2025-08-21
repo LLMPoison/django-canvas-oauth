@@ -173,9 +173,8 @@ def refresh_oauth_token(request, domain=None):
         access_token, expires, refresh_token = get_access_token(
             domain=domain,
             grant_type='refresh_token',
-            redirect_uri='',  # Not needed for refresh token grant
+            redirect_uri='',
             refresh_token=oauth_token.refresh_token)
-        access_token, expires, refresh_token = "token", timezone.now(), "refresh"  # Placeholder
 
         oauth_token.access_token = access_token
         oauth_token.expires = expires
