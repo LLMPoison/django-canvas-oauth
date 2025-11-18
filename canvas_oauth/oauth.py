@@ -156,9 +156,8 @@ def oauth_callback(request):
 
     # Make the `authorization_code` grant type request to retrieve a
     access_token, expires, refresh_token = canvas.get_access_token(
+        domain=settings.CANVAS_OAUTH_CANVAS_DOMAIN,
         grant_type='authorization_code',
-        client_id=settings.CANVAS_OAUTH_CLIENT_ID,
-        client_secret=settings.CANVAS_OAUTH_CLIENT_SECRET,
         redirect_uri=state_data["redirect_uri"],
         #redirect_uri=request.session["canvas_oauth_redirect_uri"],
         #redirect_uri='https://localhost:8000/oauth/oauth-callback',
@@ -218,9 +217,8 @@ def refresh_oauth_token(request, oauth_token):
     # Get the new access token and expiration date via
     # a refresh token grant
     oauth_token.access_token, oauth_token.expires, _ = canvas.get_access_token(
+        domain=settings.CANVAS_OAUTH_CANVAS_DOMAIN,
         grant_type='refresh_token',
-        client_id=settings.CANVAS_OAUTH_CLIENT_ID,
-        client_secret=settings.CANVAS_OAUTH_CLIENT_SECRET,
         redirect_uri=request.build_absolute_uri(
             reverse('canvas-oauth-callback')),
         refresh_token=oauth_token.refresh_token)
