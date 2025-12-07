@@ -3,7 +3,7 @@ import requests
 import os
 
 from django.urls import reverse
-from django.http.response import HttpResponse, HttpResponseRedirect
+from django.http.response import HttpResponse, HttpResponseRedirect, HttpResponseBadRequest
 from django.shortcuts import redirect
 from django.template import loader
 from django.template.exceptions import TemplateDoesNotExist
@@ -106,7 +106,7 @@ def handle_missing_token(request):
 
 
     authorize_url = canvas.get_oauth_login_url(
-        settings.CANVAS_OAUTH_CLIENT_ID,
+        settings.CANVAS_OAUTH_CANVAS_DOMAIN,
         redirect_uri=oauth_redirect_uri,
         state=oauth_request_state,
         scopes=settings.CANVAS_OAUTH_SCOPES)
@@ -120,10 +120,9 @@ def get_user_data(access_token):
     try:
         #TODO: Remove hard-coded url
         user_response = requests.get(
-            "https://canvas.docker/api/v1/users/self",
+            "https://" + settings.CANVAS_OAUTH_CANVAS_DOMAIN + "/api/v1/users/self",
             #state_data.get("user_info_url", "https://canvas.local/api/v1/users/self"),
             headers={"Authorization": f"Bearer {access_token}"},
-            verify=os.path.expanduser("~/.local/share/mkcert/rootCA.pem"),
             timeout=10,
         )
         user_response.raise_for_status()
@@ -166,6 +165,7 @@ def oauth_callback(request):
 
     user_data = get_user_data(access_token)
 
+
     canvas_user, _ = CanvasUser.objects.get_or_create(
         canvas_user_id=user_data["id"],
         defaults={
@@ -179,6 +179,7 @@ def oauth_callback(request):
 
     obj, _ = CanvasOAuth2Token.objects.update_or_create(
         user=canvas_user,
+        canvas_domain=settings.CANVAS_OAUTH_CANVAS_DOMAIN,
         defaults={
         "access_token": access_token,
         "expires": expires,

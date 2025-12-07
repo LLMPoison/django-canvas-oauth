@@ -46,6 +46,7 @@ class CanvasOAuth2Token(models.Model):
     """
 
     user = models.OneToOneField(CanvasUser, on_delete=models.CASCADE, related_name="canvas_oauth2_token")
+    canvas_domain = models.CharField(max_length=255, help_text = "canvas domain (e.g., 'canvas.school.edu')")
 
     access_token = models.TextField()
     refresh_token = models.TextField()
